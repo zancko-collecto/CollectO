@@ -37,7 +37,7 @@ ul.rules li{margin-bottom:6px}
 .chk{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;font-weight:600}
 .chk input{width:22px;height:22px;flex:none}
 label.f{display:block;margin:0 0 12px;font-weight:600;font-size:14px}
-select,input[type=number],input[type=file],input[type=text]{display:block;width:100%;margin-top:4px;padding:12px;border:2px solid var(--bd);border-radius:10px;font:inherit;background:#fff}
+select,input[type=number],input[type=file],input[type=text],input[type=email],input[type=password]{display:block;width:100%;margin-top:4px;padding:12px;border:2px solid var(--bd);border-radius:10px;font:inherit;background:#fff}
 .small{font-size:13px;color:var(--mut);font-weight:400}
 ol.lb{list-style:none;margin:0;padding:0}
 ol.lb li{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--bd)}
@@ -114,6 +114,20 @@ nav button.on,nav button.big.on{background:var(--vest);color:#fff;font-weight:80
   <label class="f">Nome<input type="text" id="pn" maxlength="30" placeholder="Il tuo nome"></label>
   <button class="btn ghost" id="pns">Salva nome</button>
   <ol class="lb st" id="ps" style="margin-top:14px"></ol>
+<div id="acc" style="margin-top:24px">
+<h3>Account</h3>
+<div id="accOut" hidden>
+<p id="accWho"></p>
+<button class="btn ghost" id="aOut">Esci</button>
+</div>
+<div id="accIn">
+<p class="small">Crea un account per trovare amici veri e scriverti con loro. Usa un nome di fantasia, non il tuo nome vero.</p>
+<label class="f">Nome utente<input type="text" id="au" maxlength="20" autocapitalize="none" autocomplete="username" placeholder="es. raccoglitore_07"><span class="small">Da 3 a 20 caratteri: lettere, numeri e _ (serve solo per registrarsi)</span></label>
+<label class="f">Email<input type="email" id="ae" autocapitalize="none" autocomplete="email" placeholder="nome@email.it"></label>
+<label class="f">Password<input type="password" id="ap" autocomplete="current-password" placeholder="Almeno 8 caratteri"></label>
+<div class="row"><button class="btn" id="aUp">Registrati</button><button class="btn ghost" id="aIn">Accedi</button></div>
+</div>
+</div>
 </div>
 
 <div class="sheet" id="sSet">
@@ -153,6 +167,7 @@ nav button.on,nav button.big.on{background:var(--vest);color:#fff;font-weight:80
 <div id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script>
 const KEY="cleanzone-v1";
 let S={user:"",zones:[],logs:[],gear:[],friends:[],groups:[],cg:""};
@@ -297,6 +312,58 @@ $("sv").onclick=()=>{
   $("kg").value="";$("ph").value="";
   show("map");toast("Raccolto salvato: "+kg+" kg in "+zn);
 };
+
+/* Account (Supabase) */
+const SB_URL="https://hwgvrwxzkmnqqqcxyndu.supabase.co",SB_KEY="sb_publishable_ofXkQMCBOnLF2VBGQ5H3WA_UCIqqLJd";
+let db=null,me=null,myName="";
+try{db=supabase.createClient(SB_URL,SB_KEY)}catch(e){}
+function renderAcc(){
+$("accIn").hidden=!!me;$("accOut").hidden=!me;
+if(me)$("accWho").textContent="Connesso come "+myName;
+}
+async function loadMe(){
+if(!db)return;
+try{
+const r=await db.auth.getSession();
+me=r.data&&r.data.session?r.data.session.user:null;
+myName="";
+if(me){const q=await db.from("profili").select("nome_utente").eq("id",me.id).maybeSingle();myName=q.data?q.data.nome_utente:(me.email||"")}
+}catch(e){me=null}
+renderAcc();
+}
+const errMsg=e=>{const m=((e&&e.message)||"").toLowerCase();
+if(m.includes("already")||m.includes("database error"))return "Email o nome utente già usati";
+if(m.includes("invalid login"))return "Email o password sbagliate";
+if(m.includes("not confirmed"))return "Conferma prima l’email";
+if(m.includes("rate limit"))return "Troppi tentativi: riprova tra poco";
+return "Qualcosa è andato storto. Riprova"};
+$("aUp").onclick=async()=>{
+if(!db){toast("Servizio non raggiungibile");return}
+const u=$("au").value.trim(),e=$("ae").value.trim(),p=$("ap").value;
+if(!/^[A-Za-z0-9_]{3,20}$/.test(u)){toast("Nome utente: 3-20 caratteri, solo lettere, numeri e _");return}
+if(!e){toast("Scrivi l’email");return}
+if(p.length<8){toast("La password deve avere almeno 8 caratteri");return}
+$("aUp").disabled=true;
+const r=await db.auth.signUp({email:e,password:p,options:{data:{nome_utente:u}}});
+$("aUp").disabled=false;
+if(r.error){toast(errMsg(r.error));return}
+$("ap").value="";
+toast(r.data&&r.data.session?"Account creato":"Controlla la tua email per confermare");
+};
+$("aIn").onclick=async()=>{
+if(!db){toast("Servizio non raggiungibile");return}
+const e=$("ae").value.trim(),p=$("ap").value;
+if(!e||!p){toast("Scrivi email e password");return}
+$("aIn").disabled=true;
+const r=await db.auth.signInWithPassword({email:e,password:p});
+$("aIn").disabled=false;
+if(r.error){toast(errMsg(r.error));return}
+$("ap").value="";toast("Accesso eseguito");
+};
+$("aOut").onclick=async()=>{if(db)await db.auth.signOut();me=null;myName="";renderAcc();toast("Sei uscito")};
+R.pro=()=>{renderPro();renderAcc()};
+if(db)db.auth.onAuthStateChange(()=>{setTimeout(loadMe,0)});
+renderAcc();
 </script>
 </body>
 </html>
